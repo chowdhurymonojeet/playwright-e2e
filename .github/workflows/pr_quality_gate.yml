@@ -1,0 +1,40 @@
+name: PR Quality Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke-and-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium
+
+      - name: Run smoke and API suites
+        env:
+          CG_ENVIRONMENT: ci
+          CG_HEADLESS: 'true'
+        run: pytest -m "smoke or api" --alluredir=artifacts/allure-results
+
+      - name: Upload automation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automation-artifacts
+          path: artifacts/

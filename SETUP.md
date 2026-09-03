@@ -126,7 +126,9 @@ For a non-interactive local run, use headless mode:
 locust -f load_tests/settlement_load.py --headless -u 10 -r 2 -t 1m
 ```
 
-The load test user reuses `create_settlement_api()`, so the same API base URL and auth rules apply there too.
+Functional clients are asynchronous. Locust supplies its own synchronous,
+instrumented HTTP client, so the load test uses a dedicated adapter and requires
+`CG_API_TOKEN`; it does not perform the asynchronous credential-login fallback.
 
 ## 6. Understand The Current Coverage Boundary
 
@@ -137,9 +139,10 @@ The load test user reuses `create_settlement_api()`, so the same API base URL an
 
 ## 7. Artifacts And Reporting
 
-- `tests/conftest.py` creates an `artifact_path` fixture that builds per-test directories under `CG_ARTIFACTS_DIR`.
-- `tests/pytest_plugins/reporter.py` captures screenshots and page HTML on UI failures and attaches them to Allure.
-- `src/services/test_context.py` provides traceable run and correlation identifiers that can be attached to failures.
+- `src/services/test_run.py` owns the per-test context, async browser lifecycle,
+  async API client, optional database adapter, and artifact directory.
+- Failed UI runs save screenshots, page HTML, HAR, and Playwright traces beneath
+  `CG_ARTIFACTS_DIR/<run-id>/`.
 
 To write Allure results locally:
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,7 +16,7 @@ from src.config.settings import Settings
 class TestCreateSettlementApi:
     """Test suite for create_settlement_api factory function."""
 
-    def test_creates_client_with_defaults_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_creates_client_with_defaults_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Should create SettlementApi with settings loaded from environment."""
         # Arrange
         monkeypatch.setenv("CG_API_BASE_URL", "https://api.test.example")
@@ -24,15 +24,16 @@ class TestCreateSettlementApi:
         monkeypatch.setenv("CG_API_TIMEOUT_SECONDS", "20")
 
         # Act
-        api = create_settlement_api()
+        api = await create_settlement_api()
 
         # Assert
         assert isinstance(api, SettlementApi)
         assert api.base_url == "https://api.test.example/"
         assert api.timeout_seconds == 20.0
         assert api._headers["Authorization"] == "Bearer test-token-123"
+        await api.aclose()
 
-    def test_creates_client_with_custom_settings(self) -> None:
+    async def test_creates_client_with_custom_settings(self) -> None:
         """Should use provided Settings instead of loading from environment."""
         # Arrange
         custom_settings = Settings(
@@ -51,26 +52,27 @@ class TestCreateSettlementApi:
         )
 
         # Act
-        api = create_settlement_api(settings=custom_settings)
+        api = await create_settlement_api(settings=custom_settings)
 
         # Assert
         assert api.base_url == "https://api.custom.example/"
         assert api.timeout_seconds == 30.0
         assert api._headers["Authorization"] == "Bearer custom-token-456"
+        await api.aclose()
 
-    def test_creates_client_with_custom_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_creates_client_with_custom_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Should use provided session (Locust use case)."""
         # Arrange
         monkeypatch.setenv("CG_API_TOKEN", "test-token")
-        mock_session = MagicMock()
+        mock_session = AsyncMock()
 
         # Act
-        api = create_settlement_api(mock_session)
+        api = await create_settlement_api(mock_session)
 
         # Assert
         assert api.session is mock_session
 
-    def test_acquires_token_via_login_when_not_in_settings(
+    async def test_acquires_token_via_login_when_not_in_settings(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should fall back to login flow when CG_API_TOKEN not set."""
@@ -83,21 +85,23 @@ class TestCreateSettlementApi:
 
         with patch("src.api.client_factory.AuthClient") as mock_auth_class:
             mock_auth_instance = MagicMock()
-            mock_auth_instance.login.return_value = "acquired-token-789"
+            mock_auth_instance.login = AsyncMock(return_value="acquired-token-789")
+            mock_auth_instance.aclose = AsyncMock()
             mock_auth_class.return_value = mock_auth_instance
 
             # Act
-            api = create_settlement_api()
+            api = await create_settlement_api()
 
             # Assert
             mock_auth_class.assert_called_once_with(
                 "https://auth.test.example",
                 timeout_seconds=15.0,
             )
-            mock_auth_instance.login.assert_called_once_with("testuser", "testpass")
+            mock_auth_instance.login.assert_awaited_once_with("testuser", "testpass")
             assert api._headers["Authorization"] == "Bearer acquired-token-789"
+            await api.aclose()
 
-    def test_raises_error_when_no_token_and_no_credentials(
+    async def test_raises_error_when_no_token_and_no_credentials(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should raise ValueError when token missing and no credentials for login."""
@@ -108,9 +112,9 @@ class TestCreateSettlementApi:
 
         # Act & Assert
         with pytest.raises(ValueError, match="No API token found and no credentials available"):
-            create_settlement_api()
+            await create_settlement_api()
 
-    def test_session_param_takes_precedence_over_settings(
+    async def test_session_param_takes_precedence_over_settings(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should use session param even when settings provided."""
@@ -120,12 +124,12 @@ class TestCreateSettlementApi:
         custom_settings = Settings.from_env()
 
         # Act
-        api = create_settlement_api(custom_session, settings=custom_settings)
+        api = await create_settlement_api(custom_session, settings=custom_settings)
 
         # Assert
         assert api.session is custom_session
 
-    def test_handles_missing_password_gracefully(
+    async def test_handles_missing_password_gracefully(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should raise clear error when username set but password missing."""
@@ -136,16 +140,17 @@ class TestCreateSettlementApi:
 
         # Act & Assert
         with pytest.raises(ValueError, match="No API token found and no credentials available"):
-            create_settlement_api()
+            await create_settlement_api()
 
-    def test_url_normalization(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_url_normalization(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Should normalize base_url by ensuring trailing slash."""
         # Arrange
         monkeypatch.setenv("CG_API_BASE_URL", "https://api.test.example")  # No trailing slash
         monkeypatch.setenv("CG_API_TOKEN", "test-token")
 
         # Act
-        api = create_settlement_api()
+        api = await create_settlement_api()
 
         # Assert
         assert api.base_url == "https://api.test.example/"  # Trailing slash added
+        await api.aclose()

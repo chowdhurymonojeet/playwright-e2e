@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from src.db.postgres_client import PostgresClient
@@ -50,7 +51,7 @@ class SettlementValidator:
     def __init__(self, client: PostgresClient) -> None:
         self.client = client
 
-    def assert_workflow_completed_correctly(
+    async def assert_workflow_completed_correctly(
         self,
         settlement_id: str,
     ) -> SettlementWorkflowResult:
@@ -71,7 +72,7 @@ class SettlementValidator:
             AssertionError: When settlement doesn't exist or workflow incomplete.
         """
         # Query settlement status
-        settlement_row = self.client.fetch_one(
+        settlement_row = await self.client.fetch_one(
             "SELECT id, status FROM settlements WHERE id = :settlement_id",
             settlement_id=settlement_id,
         )
@@ -84,7 +85,7 @@ class SettlementValidator:
         is_completed = status == "completed"
 
         # Query audit trail
-        audit_rows = self.client.fetch_all(
+        audit_rows = await self.client.fetch_all(
             "SELECT event_type FROM settlement_audit_events WHERE settlement_id = :settlement_id",
             settlement_id=settlement_id,
         )
@@ -117,7 +118,7 @@ class SettlementValidator:
 
         return result
 
-    def get_borrower_settlement_history(
+    async def get_borrower_settlement_history(
         self,
         borrower_id: str,
     ) -> BorrowerSettlementHistory:
@@ -129,7 +130,7 @@ class SettlementValidator:
         Returns:
             BorrowerSettlementHistory with settlement counts and IDs.
         """
-        settlements = self.client.fetch_all(
+        settlements = await self.client.fetch_all(
             """
             SELECT id, status
             FROM settlements
@@ -153,10 +154,10 @@ class SettlementValidator:
             settlement_ids=settlement_ids,
         )
 
-    def assert_no_duplicate_settlements(
+    async def assert_no_duplicate_settlements(
         self,
         borrower_id: str,
-        amount: float,
+        amount: Decimal,
         *,
         tolerance_seconds: int = 60,
     ) -> None:
@@ -172,13 +173,13 @@ class SettlementValidator:
         Raises:
             AssertionError: When duplicates found.
         """
-        duplicates = self.client.fetch_all(
+        duplicates = await self.client.fetch_all(
             """
             SELECT id, created_at
             FROM settlements
             WHERE borrower_id = :borrower_id
               AND amount = :amount
-              AND created_at >= NOW() - INTERVAL ':tolerance SECONDS'
+              AND created_at >= NOW() - (:tolerance * INTERVAL '1 second')
             ORDER BY created_at DESC
             """,
             borrower_id=borrower_id,
@@ -194,7 +195,7 @@ class SettlementValidator:
             )
 
     # Legacy method (shallow interface - kept for backward compatibility)
-    def assert_settlement_persisted(
+    async def assert_settlement_persisted(
         self,
         settlement_id: str,
         *,
@@ -205,7 +206,7 @@ class SettlementValidator:
         Deprecated: Use assert_workflow_completed_correctly() instead for
         domain-level validation.
         """
-        settlement_row = self.client.fetch_one(
+        settlement_row = await self.client.fetch_one(
             "SELECT id, status FROM settlements WHERE id = :settlement_id",
             settlement_id=settlement_id,
         )

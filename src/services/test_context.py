@@ -7,6 +7,8 @@ from uuid import uuid4
 
 @dataclass(frozen=True, slots=True)
 class TestContext:
+    __test__ = False
+
     run_id: str
     correlation_id: str
     created_at: datetime

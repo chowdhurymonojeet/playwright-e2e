@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
-import requests
+import httpx
 
 if TYPE_CHECKING:
     from src.services.test_context import TestContext
@@ -15,32 +15,33 @@ class ApiError(RuntimeError):
 
 
 class BaseClient:
-    """Thin wrapper around an HTTP session with consistent error handling."""
+    """Async HTTP module with one domain-facing request interface."""
 
     def __init__(
         self,
         base_url: str,
         *,
         timeout_seconds: float = 15.0,
-        session: Any | None = None,
+        session: httpx.AsyncClient | None = None,
         context: TestContext | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/") + "/"
         self.timeout_seconds = timeout_seconds
-        self.session = session or requests.Session()
+        self.session = session or httpx.AsyncClient()
+        self._owns_session = session is None
         self.context = context
 
     def _build_url(self, path: str) -> str:
         return urljoin(self.base_url, path.lstrip("/"))
 
-    def _request(
+    async def _request(
         self,
         method: str,
         path: str,
         *,
         expected_status: int | Sequence[int] = 200,
         **kwargs: Any,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         expected_statuses = (
             (expected_status,)
             if isinstance(expected_status, int)
@@ -55,13 +56,13 @@ class BaseClient:
             kwargs["headers"] = headers
 
         try:
-            response = self.session.request(
+            response = await self.session.request(
                 method=method,
                 url=self._build_url(path),
                 timeout=self.timeout_seconds,
                 **kwargs,
             )
-        except requests.RequestException as error:
+        except httpx.HTTPError as error:
             raise ApiError(f"{method.upper()} {path} failed: {error}") from error
 
         if response.status_code not in expected_statuses:
@@ -73,7 +74,7 @@ class BaseClient:
 
         return response
 
-    def get_json(
+    async def get_json(
         self,
         method: str,
         path: str,
@@ -83,7 +84,7 @@ class BaseClient:
         json: Mapping[str, Any] | None = None,
         params: Mapping[str, Any] | None = None,
     ) -> Any:
-        response = self._request(
+        response = await self._request(
             method,
             path,
             expected_status=expected_status,
@@ -96,3 +97,8 @@ class BaseClient:
             return response.json()
         except ValueError as error:
             raise ApiError(f"{method.upper()} {path} returned invalid JSON") from error
+
+    async def aclose(self) -> None:
+        """Release the owned HTTP connection pool."""
+        if self._owns_session:
+            await self.session.aclose()

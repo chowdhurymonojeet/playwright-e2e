@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+import httpx
 
 from src.api.base_client import BaseClient
 from src.models.settlement_models import SettlementCreateRequest, SettlementRecord
@@ -20,7 +22,7 @@ class SettlementApi(BaseClient):
         *,
         token: str | None = None,
         timeout_seconds: float = 15.0,
-        session: Any | None = None,
+        session: httpx.AsyncClient | None = None,
         context: TestContext | None = None,
     ) -> None:
         super().__init__(
@@ -36,10 +38,10 @@ class SettlementApi(BaseClient):
     def set_token(self, token: str) -> None:
         self._headers["Authorization"] = f"Bearer {token}"
 
-    def create_settlement(
+    async def create_settlement(
         self, request: SettlementCreateRequest
     ) -> SettlementRecord:
-        payload = self.get_json(
+        payload = await self.get_json(
             "POST",
             self.SETTLEMENTS_PATH,
             expected_status=(200, 201),
@@ -48,8 +50,8 @@ class SettlementApi(BaseClient):
         )
         return SettlementRecord.model_validate(payload)
 
-    def get_settlement(self, settlement_id: str) -> SettlementRecord:
-        payload = self.get_json(
+    async def get_settlement(self, settlement_id: str) -> SettlementRecord:
+        payload = await self.get_json(
             "GET",
             f"{self.SETTLEMENTS_PATH}/{settlement_id}",
             expected_status=200,
@@ -57,8 +59,8 @@ class SettlementApi(BaseClient):
         )
         return SettlementRecord.model_validate(payload)
 
-    def list_settlements(self, borrower_id: str) -> list[SettlementRecord]:
-        payload = self.get_json(
+    async def list_settlements(self, borrower_id: str) -> list[SettlementRecord]:
+        payload = await self.get_json(
             "GET",
             self.SETTLEMENTS_PATH,
             expected_status=200,

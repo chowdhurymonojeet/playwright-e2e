@@ -6,7 +6,9 @@ complexity around Settings loading, token acquisition, and session management.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+import httpx
 
 from src.api.auth_client import AuthClient
 from src.api.settlement_api import SettlementApi
@@ -16,8 +18,8 @@ if TYPE_CHECKING:
     from src.services.test_context import TestContext
 
 
-def create_settlement_api(
-    session: Any | None = None,
+async def create_settlement_api(
+    session: httpx.AsyncClient | None = None,
     *,
     settings: Settings | None = None,
     context: TestContext | None = None,
@@ -31,8 +33,8 @@ def create_settlement_api(
     - Test context correlation (injects X-Correlation-ID, X-Run-ID headers)
 
     Args:
-        session: Optional HTTP session (Locust passes this for connection pooling).
-                 If None, SettlementApi creates a new requests.Session().
+        session: Optional async HTTP client. If None, SettlementApi creates
+                 and owns an httpx.AsyncClient.
         settings: Optional config. If None, loads from Settings.from_env().
         context: Optional TestContext for correlation headers.
 
@@ -44,23 +46,20 @@ def create_settlement_api(
 
     Examples:
         >>> # Pytest (80% case) - zero params
-        >>> api = create_settlement_api()
+        >>> api = await create_settlement_api()
 
         >>> # With test context (correlation tracing)
-        >>> api = create_settlement_api(context=test_context)
-
-        >>> # Locust (15% case) - pass session for connection pooling
-        >>> api = create_settlement_api(self.client)
+        >>> api = await create_settlement_api(context=test_context)
 
         >>> # Custom settings (5% case) - override config
-        >>> api = create_settlement_api(settings=custom_settings)
+        >>> api = await create_settlement_api(settings=custom_settings)
     """
     # Load settings if not provided (depth: hides Settings.from_env pattern)
     if settings is None:
         settings = Settings.from_env()
 
     # Resolve token (depth: hides auth logic)
-    token = _acquire_token(settings)
+    token = await _acquire_token(settings)
 
     # Create client with resolved dependencies
     return SettlementApi(
@@ -72,7 +71,7 @@ def create_settlement_api(
     )
 
 
-def _acquire_token(settings: Settings) -> str:
+async def _acquire_token(settings: Settings) -> str:
     """Acquire authentication token from settings or via login.
 
     Internal adapter seam: handles token acquisition strategy.
@@ -102,4 +101,7 @@ def _acquire_token(settings: Settings) -> str:
         settings.auth_base_url,
         timeout_seconds=settings.api_timeout_seconds,
     )
-    return auth_client.login(settings.ui_username, settings.ui_password)
+    try:
+        return await auth_client.login(settings.ui_username, settings.ui_password)
+    finally:
+        await auth_client.aclose()

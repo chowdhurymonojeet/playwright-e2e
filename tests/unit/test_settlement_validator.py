@@ -20,7 +20,7 @@ def mock_db_client(monkeypatch: pytest.MonkeyPatch) -> PostgresClient:
         def __init__(self) -> None:
             self.queries: list[str] = []
 
-        def fetch_one(self, query: str, **params: dict) -> dict | None:
+        async def fetch_one(self, query: str, **params: dict) -> dict | None:
             self.queries.append(query)
             settlement_id = params.get("settlement_id")
 
@@ -30,7 +30,7 @@ def mock_db_client(monkeypatch: pytest.MonkeyPatch) -> PostgresClient:
                 return {"id": settlement_id, "status": "pending"}
             return None
 
-        def fetch_all(self, query: str, **params: dict) -> list[dict]:
+        async def fetch_all(self, query: str, **params: dict) -> list[dict]:
             self.queries.append(query)
             settlement_id = params.get("settlement_id")
             borrower_id = params.get("borrower_id")
@@ -61,13 +61,13 @@ def mock_db_client(monkeypatch: pytest.MonkeyPatch) -> PostgresClient:
     return MockClient()  # type: ignore[return-value]
 
 
-def test_assert_workflow_completed_correctly_passes_for_complete_workflow(
+async def test_assert_workflow_completed_correctly_passes_for_complete_workflow(
     mock_db_client: PostgresClient,
 ) -> None:
     """Domain question: Was workflow completed correctly? Yes."""
     validator = SettlementValidator(mock_db_client)
 
-    result = validator.assert_workflow_completed_correctly("STL-COMPLETE")
+    result = await validator.assert_workflow_completed_correctly("STL-COMPLETE")
 
     assert result.settlement_id == "STL-COMPLETE"
     assert result.status == "completed"
@@ -76,7 +76,7 @@ def test_assert_workflow_completed_correctly_passes_for_complete_workflow(
     assert result.missing_audit_events == []
 
 
-def test_assert_workflow_completed_correctly_fails_for_incomplete_status(
+async def test_assert_workflow_completed_correctly_fails_for_incomplete_status(
     mock_db_client: PostgresClient,
 ) -> None:
     """Domain question: Was workflow completed correctly? No - wrong status."""
@@ -85,10 +85,10 @@ def test_assert_workflow_completed_correctly_fails_for_incomplete_status(
     with pytest.raises(
         AssertionError, match="Settlement STL-PENDING workflow incomplete: status=pending"
     ):
-        validator.assert_workflow_completed_correctly("STL-PENDING")
+        await validator.assert_workflow_completed_correctly("STL-PENDING")
 
 
-def test_assert_workflow_completed_correctly_fails_for_missing_settlement(
+async def test_assert_workflow_completed_correctly_fails_for_missing_settlement(
     mock_db_client: PostgresClient,
 ) -> None:
     """Domain question: Was workflow completed correctly? No - doesn't exist."""
@@ -97,16 +97,16 @@ def test_assert_workflow_completed_correctly_fails_for_missing_settlement(
     with pytest.raises(
         AssertionError, match="Settlement STL-MISSING does not exist in database"
     ):
-        validator.assert_workflow_completed_correctly("STL-MISSING")
+        await validator.assert_workflow_completed_correctly("STL-MISSING")
 
 
-def test_get_borrower_settlement_history_returns_domain_summary(
+async def test_get_borrower_settlement_history_returns_domain_summary(
     mock_db_client: PostgresClient,
 ) -> None:
     """Domain question: What settlements exist for this borrower?"""
     validator = SettlementValidator(mock_db_client)
 
-    history = validator.get_borrower_settlement_history("BOR-001")
+    history = await validator.get_borrower_settlement_history("BOR-001")
 
     assert history.borrower_id == "BOR-001"
     assert history.total_settlements == 3
@@ -116,13 +116,13 @@ def test_get_borrower_settlement_history_returns_domain_summary(
     assert history.settlement_ids == ["STL-001", "STL-002", "STL-003"]
 
 
-def test_legacy_method_still_works_for_backward_compatibility(
+async def test_legacy_method_still_works_for_backward_compatibility(
     mock_db_client: PostgresClient,
 ) -> None:
     """Legacy shallow interface maintained for backward compatibility."""
     validator = SettlementValidator(mock_db_client)
 
-    result = validator.assert_settlement_persisted(
+    result = await validator.assert_settlement_persisted(
         "STL-COMPLETE", expected_status="completed"
     )
 

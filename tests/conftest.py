@@ -1,19 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Generator
 
 import pytest
-from playwright.sync_api import Browser, BrowserContext, Page
+from playwright.async_api import Page
 
-from src.api.client_factory import create_settlement_api
 from src.api.settlement_api import SettlementApi
 from src.config.settings import Settings
 from src.data_factory.borrower_factory import BorrowerFactory
-from src.pages.browser_factory import create_browser_context, create_page
 from src.services.test_context import TestContext
+from src.services.test_run import TestRun
 
-# Register pytest plugins
 pytest_plugins = ["tests.pytest_plugins.reporter"]
 
 
@@ -25,61 +23,32 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def settlement_api() -> SettlementApi:
-    """Configured SettlementApi client using factory.
-
-    All wiring (Settings, token, session) handled by factory.
-    """
-    return create_settlement_api()
-
-
-@pytest.fixture(scope="session")
-def browser_context(settings: Settings) -> Generator[tuple[BrowserContext, Browser], None, None]:
-    """Configured Playwright browser context using factory.
-
-    Scope is session to reuse browser across tests for performance.
-    """
-    context, browser = create_browser_context(settings=settings)
-    yield (context, browser)
-    # Cleanup
-    context.close()
-    browser.close()
+async def test_run(settings: Settings) -> AsyncGenerator[TestRun, None]:
+    """One context, browser, API client, and artifact directory per test."""
+    async with TestRun(settings) as run:
+        yield run
 
 
 @pytest.fixture
-def page(browser_context: tuple[BrowserContext, Browser]) -> Generator[Page, None, None]:
-    """Fresh Playwright page for each test.
+def test_context(test_run: TestRun) -> TestContext:
+    return test_run.context
 
-    Uses session-scoped browser context but creates new page per test
-    for isolation.
-    """
-    context, _ = browser_context
-    page = context.new_page()
-    yield page
-    page.close()
+
+@pytest.fixture
+async def settlement_api(test_run: TestRun) -> SettlementApi:
+    return await test_run.get_api()
+
+
+@pytest.fixture
+async def page(test_run: TestRun) -> Page:
+    return await test_run.get_page()
+
+
+@pytest.fixture
+def artifact_path(test_run: TestRun) -> Path:
+    return test_run.artifact_dir
 
 
 @pytest.fixture
 def borrower_factory() -> BorrowerFactory:
     return BorrowerFactory()
-
-
-@pytest.fixture
-def test_context() -> TestContext:
-    return TestContext.new()
-
-
-@pytest.fixture
-def artifact_path(
-    settings: Settings,
-    request: pytest.FixtureRequest,
-) -> Path:
-    node_name = (
-        request.node.nodeid.replace("/", "_")
-        .replace("::", "__")
-        .replace("[", "_")
-        .replace("]", "")
-    )
-    destination = settings.artifacts_dir / node_name
-    destination.mkdir(parents=True, exist_ok=True)
-    return destination

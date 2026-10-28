@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # Playwright-e2e-framework
 =======
 # ClearGrid QA Automation
